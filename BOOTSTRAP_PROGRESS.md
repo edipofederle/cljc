@@ -82,7 +82,7 @@ typedef struct RuntimeList {
 ```
 
 #### Runtime Functions
-Implemented 6 list operations:
+Implemented 7 list operations:
 
 ```c
 RuntimeList* create_list();                    // Create empty list
@@ -91,6 +91,7 @@ double first(RuntimeList *lst);                // Get first element
 RuntimeList* rest(RuntimeList *lst);                  // Get list without first
 RuntimeList* append_elem(RuntimeList *lst, double elem); // Append element
 double list_count(RuntimeList *lst);           // Get list size
+void print_list(RuntimeList *lst);             // Print list in readable format
 ```
 
 **Files Modified:**
@@ -106,10 +107,20 @@ double list_count(RuntimeList *lst);           // Get list size
 
 #### Usage Examples
 ```clojure
-(empty-list)                               ; Create empty list
-(cons 1 (cons 2 (cons 3 (empty-list))))   ; Build list [1, 2, 3]
-(list-count (cons 1 (empty-list)))        ; => 1.0
-(first (cons 42 (empty-list)))            ; => 42.0
+(empty-list)                          ; Create empty list
+
+;; Build and print lists
+(print-list (cons 1 (cons 2 (cons 3 (empty-list)))))  ; => Result: (1 2 3)
+(print-list (append (empty-list) 5))                   ; => Result: (5)
+
+;; List operations
+(list-count (cons 1 (cons 2 (cons 3 (empty-list)))))  ; => 3.0
+(first (cons 42 (empty-list)))                         ; => 42.0
+(first (rest (cons 1 (cons 2 (empty-list)))))          ; => 2.0
+
+;; Use in functions
+(defn make-list [] (cons 1 (cons 2 (empty-list))))
+(print-list (make-list))  ; => Result: (1 2)
 ```
 
 ---
@@ -196,6 +207,7 @@ Executable
 - `rest`
 - `append`
 - `list-count`
+- `print-list`
 
 ---
 
@@ -357,7 +369,18 @@ make clean && make
 #### String/List Integration
 - Minor bugs with nested string function calls
 - List operations only work with doubles (not mixed types)
+- Direct printing of lists shows pointer values - use `print-list` for readable output
 - These are POC limitations, not fundamental
+
+**Note**: Lists return pointers, not doubles:
+```clojure
+;; To print a list, use print-list:
+(print-list (cons 1 (cons 2 (empty-list))))  ; => Result: (1 2)
+
+;; Or extract double values:
+(first (cons 1 (empty-list)))      ; => 1.0
+(list-count (cons 1 (empty-list))) ; => 1.0
+```
 
 ---
 

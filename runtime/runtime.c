@@ -2,9 +2,14 @@
 #include <string.h>
 #include <stdlib.h>
 
+// Forward declaration
+typedef struct RuntimeList RuntimeList;
+
 void print_double(double value) {
     printf("Result: %f\n", value);
 }
+
+void print_list(RuntimeList *lst);  // Forward declare, define later
 
 // String runtime functions
 double str_length(const char *s) {
@@ -49,11 +54,25 @@ char* substring(const char *s, double start, double end) {
 }
 
 // Simple runtime list structure (for POC - stores doubles)
-typedef struct RuntimeList {
+struct RuntimeList {
     double *elements;
     int count;
     int capacity;
-} RuntimeList;
+};
+
+void print_list(RuntimeList *lst) {
+    if (!lst) {
+        printf("Result: ()\n");
+        return;
+    }
+
+    printf("Result: (");
+    for (int i = 0; i < lst->count; i++) {
+        if (i > 0) printf(" ");
+        printf("%.0f", lst->elements[i]);
+    }
+    printf(")\n");
+}
 
 RuntimeList* create_list() {
     RuntimeList *list = malloc(sizeof(RuntimeList));

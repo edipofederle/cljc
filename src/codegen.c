@@ -185,7 +185,8 @@ static int is_list_function(const char *symbol) {
            strcmp(symbol, "rest") == 0 ||
            strcmp(symbol, "append") == 0 ||
            strcmp(symbol, "list-count") == 0 ||
-           strcmp(symbol, "empty-list") == 0;
+           strcmp(symbol, "empty-list") == 0 ||
+           strcmp(symbol, "print-list") == 0;
 }
 
 static void generate_operator(CodeGen *cg, const char *op, ASTNode **args, int arg_count) {
@@ -372,6 +373,17 @@ static void generate_list_function(CodeGen *cg, const char *func, ASTNode **args
         generate_expr(cg, args[0]);
         fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop list pointer
         emit_call(cg->output, "_list_count");
+        emit_push_double(cg->output, 0);
+    } else if (strcmp(func, "print-list") == 0) {
+        if (arg_count != 1) {
+            fprintf(stderr, "Error: print-list requires exactly 1 argument\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop list pointer
+        emit_call(cg->output, "_print_list");
+        // print-list returns void, push 0 as placeholder
+        fprintf(cg->output, "    fmov d0, #0.0\n");
         emit_push_double(cg->output, 0);
     }
 }

@@ -43,6 +43,7 @@ make clean && make
 
 # Test new list features
 ./cljc '(list-count (cons 1 (empty-list)))'  # Should output 1.0
+./cljc '(print-list (cons 1 (cons 2 (cons 3 (empty-list)))))'  # Should output Result: (1 2 3)
 
 # Test bootstrap POC
 ./cljc '(defn make-token [t v l c] (cons t (cons v (cons l (cons c (empty-list)))))) (first (make-token 0 40 1 1))'  # Should output 0.0
