@@ -5,6 +5,7 @@
 #include "arm64.h"
 
 #define INITIAL_FLOAT_CAPACITY 16
+#define INITIAL_STRING_CAPACITY 16
 #define INITIAL_VAR_CAPACITY 16
 
 static void init_codegen(CodeGen *cg, const char *output_file) {
@@ -18,6 +19,9 @@ static void init_codegen(CodeGen *cg, const char *output_file) {
     cg->float_capacity = INITIAL_FLOAT_CAPACITY;
     cg->float_count = 0;
     cg->float_constants = malloc(INITIAL_FLOAT_CAPACITY * sizeof(FloatConstant *));
+    cg->string_capacity = INITIAL_STRING_CAPACITY;
+    cg->string_count = 0;
+    cg->string_constants = malloc(INITIAL_STRING_CAPACITY * sizeof(StringConstant *));
     cg->var_capacity = INITIAL_VAR_CAPACITY;
     cg->var_count = 0;
     cg->variables = malloc(INITIAL_VAR_CAPACITY * sizeof(Variable *));
@@ -29,6 +33,12 @@ static void cleanup_codegen(CodeGen *cg) {
         free(cg->float_constants[i]);
     }
     free(cg->float_constants);
+    for (int i = 0; i < cg->string_count; i++) {
+        free(cg->string_constants[i]->value);
+        free(cg->string_constants[i]->label);
+        free(cg->string_constants[i]);
+    }
+    free(cg->string_constants);
     for (int i = 0; i < cg->var_count; i++) {
         free(cg->variables[i]->name);
         free(cg->variables[i]->label);
@@ -61,6 +71,28 @@ static const char* add_float_constant(CodeGen *cg, double value) {
     return fc->label;
 }
 
+static const char* add_string_constant(CodeGen *cg, const char *value) {
+    for (int i = 0; i < cg->string_count; i++) {
+        if (strcmp(cg->string_constants[i]->value, value) == 0) {
+            return cg->string_constants[i]->label;
+        }
+    }
+
+    if (cg->string_count >= cg->string_capacity) {
+        cg->string_capacity *= 2;
+        cg->string_constants = realloc(cg->string_constants,
+                                       cg->string_capacity * sizeof(StringConstant *));
+    }
+
+    StringConstant *sc = malloc(sizeof(StringConstant));
+    sc->value = strdup(value);
+    sc->label = malloc(32);
+    sprintf(sc->label, ".L_str_%d", cg->label_counter++);
+
+    cg->string_constants[cg->string_count++] = sc;
+    return sc->label;
+}
+
 static void add_variable(CodeGen *cg, const char *name, double value) {
     if (cg->var_count >= cg->var_capacity) {
         cg->var_capacity *= 2;
@@ -87,7 +119,7 @@ static Variable* lookup_variable(CodeGen *cg, const char *name) {
 }
 
 static void emit_data_section(CodeGen *cg) {
-    if (cg->float_count > 0 || cg->var_count > 0) {
+    if (cg->float_count > 0 || cg->var_count > 0 || cg->string_count > 0) {
         emit_data_section_start(cg->output);
         for (int i = 0; i < cg->float_count; i++) {
             emit_float_constant(cg->output,
@@ -99,6 +131,11 @@ static void emit_data_section(CodeGen *cg) {
                               cg->variables[i]->label,
                               cg->variables[i]->value);
         }
+        for (int i = 0; i < cg->string_count; i++) {
+            emit_string_constant(cg->output,
+                               cg->string_constants[i]->label,
+                               cg->string_constants[i]->value);
+        }
     }
 }
 
@@ -109,6 +146,15 @@ static void generate_number(CodeGen *cg, double value) {
     emit_comment(cg->output, "Load number");
     emit_load_double_literal(cg->output, label);
     emit_push_double(cg->output, 0);
+}
+
+static void generate_string(CodeGen *cg, const char *value) {
+    const char *label = add_string_constant(cg, value);
+    emit_comment(cg->output, "Load string");
+    fprintf(cg->output, "    adrp x0, %s@PAGE\n", label);
+    fprintf(cg->output, "    add x0, x0, %s@PAGEOFF\n", label);
+    // Push the pointer (treating it as data on stack)
+    fprintf(cg->output, "    str x0, [sp, #-16]!\n");
 }
 
 static int is_operator(const char *symbol) {
@@ -124,6 +170,22 @@ static int is_comparison(const char *symbol) {
            strcmp(symbol, "=") == 0 ||
            strcmp(symbol, "<=") == 0 ||
            strcmp(symbol, ">=") == 0;
+}
+
+static int is_string_function(const char *symbol) {
+    return strcmp(symbol, "str-length") == 0 ||
+           strcmp(symbol, "str-char-at") == 0 ||
+           strcmp(symbol, "str-concat") == 0 ||
+           strcmp(symbol, "substring") == 0;
+}
+
+static int is_list_function(const char *symbol) {
+    return strcmp(symbol, "cons") == 0 ||
+           strcmp(symbol, "first") == 0 ||
+           strcmp(symbol, "rest") == 0 ||
+           strcmp(symbol, "append") == 0 ||
+           strcmp(symbol, "list-count") == 0 ||
+           strcmp(symbol, "empty-list") == 0;
 }
 
 static void generate_operator(CodeGen *cg, const char *op, ASTNode **args, int arg_count) {
@@ -196,6 +258,122 @@ static void generate_comparison(CodeGen *cg, const char *op, ASTNode **args, int
     emit_cset(cg->output, 0, condition);
     fprintf(cg->output, "    ucvtf d0, x0\n");
     emit_push_double(cg->output, 0);
+}
+
+static void generate_string_function(CodeGen *cg, const char *func, ASTNode **args, int arg_count) {
+    char comment[64];
+    snprintf(comment, sizeof(comment), "String function: %s", func);
+    emit_comment(cg->output, comment);
+
+    if (strcmp(func, "str-length") == 0) {
+        if (arg_count != 1) {
+            fprintf(stderr, "Error: str-length requires exactly 1 argument\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop string pointer
+        emit_call(cg->output, "_str_length");
+        emit_push_double(cg->output, 0);
+    } else if (strcmp(func, "str-char-at") == 0) {
+        if (arg_count != 2) {
+            fprintf(stderr, "Error: str-char-at requires exactly 2 arguments\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);  // String
+        generate_expr(cg, args[1]);  // Index
+        emit_pop_double(cg->output, 1);  // Pop index into d1
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop string pointer
+        emit_call(cg->output, "_str_char_at");
+        emit_push_double(cg->output, 0);
+    } else if (strcmp(func, "str-concat") == 0) {
+        if (arg_count != 2) {
+            fprintf(stderr, "Error: str-concat requires exactly 2 arguments\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);  // First string
+        generate_expr(cg, args[1]);  // Second string
+        fprintf(cg->output, "    ldr x1, [sp], #16\n");  // Pop second string
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop first string
+        emit_call(cg->output, "_str_concat");
+        fprintf(cg->output, "    str x0, [sp, #-16]!\n");  // Push result
+    } else if (strcmp(func, "substring") == 0) {
+        if (arg_count != 3) {
+            fprintf(stderr, "Error: substring requires exactly 3 arguments\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);  // String
+        generate_expr(cg, args[1]);  // Start
+        generate_expr(cg, args[2]);  // End
+        emit_pop_double(cg->output, 2);  // Pop end into d2
+        emit_pop_double(cg->output, 1);  // Pop start into d1
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop string
+        emit_call(cg->output, "_substring");
+        fprintf(cg->output, "    str x0, [sp, #-16]!\n");  // Push result
+    }
+}
+
+static void generate_list_function(CodeGen *cg, const char *func, ASTNode **args, int arg_count) {
+    char comment[64];
+    snprintf(comment, sizeof(comment), "List function: %s", func);
+    emit_comment(cg->output, comment);
+
+    if (strcmp(func, "empty-list") == 0) {
+        if (arg_count != 0) {
+            fprintf(stderr, "Error: empty-list requires 0 arguments\n");
+            exit(1);
+        }
+        emit_call(cg->output, "_create_list");
+        fprintf(cg->output, "    str x0, [sp, #-16]!\n");  // Push list pointer
+    } else if (strcmp(func, "cons") == 0) {
+        if (arg_count != 2) {
+            fprintf(stderr, "Error: cons requires exactly 2 arguments\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);  // Element
+        generate_expr(cg, args[1]);  // List
+        fprintf(cg->output, "    ldr x1, [sp], #16\n");  // Pop list pointer into x1
+        emit_pop_double(cg->output, 0);  // Pop element into d0
+        emit_call(cg->output, "_cons");
+        fprintf(cg->output, "    str x0, [sp, #-16]!\n");  // Push result list
+    } else if (strcmp(func, "first") == 0) {
+        if (arg_count != 1) {
+            fprintf(stderr, "Error: first requires exactly 1 argument\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop list pointer
+        emit_call(cg->output, "_first");
+        emit_push_double(cg->output, 0);
+    } else if (strcmp(func, "rest") == 0) {
+        if (arg_count != 1) {
+            fprintf(stderr, "Error: rest requires exactly 1 argument\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop list pointer
+        emit_call(cg->output, "_rest");
+        fprintf(cg->output, "    str x0, [sp, #-16]!\n");  // Push result list
+    } else if (strcmp(func, "append") == 0) {
+        if (arg_count != 2) {
+            fprintf(stderr, "Error: append requires exactly 2 arguments\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);  // List
+        generate_expr(cg, args[1]);  // Element
+        emit_pop_double(cg->output, 1);  // Pop element into d1
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop list pointer
+        emit_call(cg->output, "_append_elem");
+        fprintf(cg->output, "    str x0, [sp, #-16]!\n");  // Push result list
+    } else if (strcmp(func, "list-count") == 0) {
+        if (arg_count != 1) {
+            fprintf(stderr, "Error: list-count requires exactly 1 argument\n");
+            exit(1);
+        }
+        generate_expr(cg, args[0]);
+        fprintf(cg->output, "    ldr x0, [sp], #16\n");  // Pop list pointer
+        emit_call(cg->output, "_list_count");
+        emit_push_double(cg->output, 0);
+    }
 }
 
 static void generate_if(CodeGen *cg, ASTNode **args, int arg_count) {
@@ -278,6 +456,10 @@ static void generate_list(CodeGen *cg, ASTNode *node) {
         generate_operator(cg, symbol, args, arg_count);
     } else if (is_comparison(symbol)) {
         generate_comparison(cg, symbol, args, arg_count);
+    } else if (is_string_function(symbol)) {
+        generate_string_function(cg, symbol, args, arg_count);
+    } else if (is_list_function(symbol)) {
+        generate_list_function(cg, symbol, args, arg_count);
     } else if (strcmp(symbol, "if") == 0) {
         generate_if(cg, args, arg_count);
     } else if (strcmp(symbol, "defn") == 0) {
@@ -337,6 +519,10 @@ static void generate_expr(CodeGen *cg, ASTNode *node) {
 
         case AST_SYMBOL:
             generate_symbol(cg, node->as.symbol);
+            break;
+
+        case AST_STRING:
+            generate_string(cg, node->as.string);
             break;
 
         case AST_LIST:

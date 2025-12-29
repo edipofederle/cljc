@@ -109,6 +109,44 @@ static Token tokenize_symbol(Tokenizer *t) {
     return token;
 }
 
+static Token tokenize_string(Tokenizer *t) {
+    int start_line = t->line;
+    int start_col = t->column;
+
+    // Skip opening quote
+    advance(t);
+    int start = t->current;
+
+    // Read until closing quote or end of input
+    while (!is_at_end(t) && peek(t) != '"') {
+        if (peek(t) == '\\') {
+            // Skip escape sequence
+            advance(t);
+            if (!is_at_end(t)) {
+                advance(t);
+            }
+        } else {
+            advance(t);
+        }
+    }
+
+    if (is_at_end(t)) {
+        return create_token(TOKEN_ERROR, "Unterminated string", start_line, start_col);
+    }
+
+    int length = t->current - start;
+    char *value = malloc(length + 1);
+    strncpy(value, t->source + start, length);
+    value[length] = '\0';
+
+    // Skip closing quote
+    advance(t);
+
+    Token token = create_token(TOKEN_STRING, value, start_line, start_col);
+    free(value);
+    return token;
+}
+
 TokenList *tokenize(const char *source) {
     Tokenizer t;
     init_tokenizer(&t, source);
@@ -140,6 +178,8 @@ TokenList *tokenize(const char *source) {
         } else if (c == ']') {
             advance(&t);
             add_token(list, create_token(TOKEN_RIGHT_BRACKET, "]", t.line, col));
+        } else if (c == '"') {
+            add_token(list, tokenize_string(&t));
         } else if (isdigit(c)) {
             add_token(list, tokenize_number(&t));
         } else if (is_symbol_char(c)) {
@@ -172,6 +212,7 @@ const char *token_type_to_string(TokenType type) {
         case TOKEN_RIGHT_BRACKET: return "RIGHT_BRACKET";
         case TOKEN_NUMBER: return "NUMBER";
         case TOKEN_SYMBOL: return "SYMBOL";
+        case TOKEN_STRING: return "STRING";
         case TOKEN_EOF: return "EOF";
         case TOKEN_ERROR: return "ERROR";
         default: return "UNKNOWN";

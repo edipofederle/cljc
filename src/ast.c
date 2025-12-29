@@ -19,6 +19,13 @@ ASTNode *create_symbol_node(const char *symbol) {
     return node;
 }
 
+ASTNode *create_string_node(const char *string) {
+    ASTNode *node = malloc(sizeof(ASTNode));
+    node->type = AST_STRING;
+    node->as.string = strdup(string);
+    return node;
+}
+
 ASTNode *create_list_node(void) {
     ASTNode *node = malloc(sizeof(ASTNode));
     node->type = AST_LIST;
@@ -49,6 +56,9 @@ void free_ast(ASTNode *node) {
     switch (node->type) {
         case AST_SYMBOL:
             free(node->as.symbol);
+            break;
+        case AST_STRING:
+            free(node->as.string);
             break;
         case AST_LIST:
             for (int i = 0; i < node->as.list.count; i++) {
@@ -85,6 +95,11 @@ void print_ast(ASTNode *node, int indent) {
         case AST_SYMBOL:
             print_indent(indent);
             printf("Symbol: %s\n", node->as.symbol);
+            break;
+
+        case AST_STRING:
+            print_indent(indent);
+            printf("String: \"%s\"\n", node->as.string);
             break;
 
         case AST_LIST:

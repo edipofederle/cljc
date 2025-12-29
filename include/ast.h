@@ -4,7 +4,8 @@
 typedef enum {
     AST_NUMBER,
     AST_SYMBOL,
-    AST_LIST
+    AST_LIST,
+    AST_STRING
 } ASTNodeType;
 
 typedef struct ASTNode {
@@ -12,6 +13,7 @@ typedef struct ASTNode {
     union {
         char *symbol;
         double number;
+        char *string;
         struct {
             struct ASTNode **elements;
             int count;
@@ -22,6 +24,7 @@ typedef struct ASTNode {
 
 ASTNode *create_number_node(double value);
 ASTNode *create_symbol_node(const char *symbol);
+ASTNode *create_string_node(const char *string);
 ASTNode *create_list_node(void);
 void add_to_list(ASTNode *list, ASTNode *element);
 void free_ast(ASTNode *node);

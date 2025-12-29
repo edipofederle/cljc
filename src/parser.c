@@ -110,6 +110,11 @@ static ASTNode *parse_expression(Parser *p) {
             return create_symbol_node(token->value);
         }
 
+        case TOKEN_STRING: {
+            advance(p);
+            return create_string_node(token->value);
+        }
+
         case TOKEN_EOF:
             return NULL;
 

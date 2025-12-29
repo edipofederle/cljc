@@ -79,6 +79,11 @@ void emit_float_constant(FILE *f, const char *label, double value) {
     fprintf(f, "    .double %f\n", value);
 }
 
+void emit_string_constant(FILE *f, const char *label, const char *value) {
+    fprintf(f, "%s:\n", label);
+    fprintf(f, "    .asciz \"%s\"\n", value);
+}
+
 void emit_fcmp(FILE *f) {
     fprintf(f, "    fcmp d0, d1\n");
 }

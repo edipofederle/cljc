@@ -8,6 +8,7 @@ typedef enum {
     TOKEN_RIGHT_BRACKET,
     TOKEN_NUMBER,
     TOKEN_SYMBOL,
+    TOKEN_STRING,
     TOKEN_EOF,
     TOKEN_ERROR
 } TokenType;

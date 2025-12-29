@@ -20,6 +20,7 @@ void emit_call(FILE *f, const char *label);
 void emit_return(FILE *f);
 void emit_comment(FILE *f, const char *comment);
 void emit_float_constant(FILE *f, const char *label, double value);
+void emit_string_constant(FILE *f, const char *label, const char *value);
 void emit_fcmp(FILE *f);
 void emit_label(FILE *f, const char *label);
 void emit_branch(FILE *f, const char *label);

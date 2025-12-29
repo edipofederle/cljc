@@ -10,6 +10,11 @@ typedef struct FloatConstant {
     char *label;
 } FloatConstant;
 
+typedef struct StringConstant {
+    char *value;
+    char *label;
+} StringConstant;
+
 typedef struct Variable {
     char *name;
     double value;
@@ -23,6 +28,9 @@ typedef struct CodeGen {
     FloatConstant **float_constants;
     int float_count;
     int float_capacity;
+    StringConstant **string_constants;
+    int string_count;
+    int string_capacity;
     Variable **variables;
     int var_count;
     int var_capacity;
