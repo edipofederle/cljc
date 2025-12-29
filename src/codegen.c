@@ -118,6 +118,14 @@ static int is_operator(const char *symbol) {
            strcmp(symbol, "/") == 0;
 }
 
+static int is_comparison(const char *symbol) {
+    return strcmp(symbol, "<") == 0 ||
+           strcmp(symbol, ">") == 0 ||
+           strcmp(symbol, "=") == 0 ||
+           strcmp(symbol, "<=") == 0 ||
+           strcmp(symbol, ">=") == 0;
+}
+
 static void generate_operator(CodeGen *cg, const char *op, ASTNode **args, int arg_count) {
     if (arg_count == 0) {
         fprintf(stderr, "Error: Operator %s requires at least one argument\n", op);
@@ -149,6 +157,76 @@ static void generate_operator(CodeGen *cg, const char *op, ASTNode **args, int a
     }
 
     emit_push_double(cg->output, 0);
+}
+
+static void generate_comparison(CodeGen *cg, const char *op, ASTNode **args, int arg_count) {
+    if (arg_count != 2) {
+        fprintf(stderr, "Error: Comparison operator %s requires exactly 2 arguments\n", op);
+        exit(1);
+    }
+
+    char comment[64];
+    snprintf(comment, sizeof(comment), "Comparison: %s", op);
+    emit_comment(cg->output, comment);
+
+    generate_expr(cg, args[0]);
+    generate_expr(cg, args[1]);
+
+    emit_pop_double(cg->output, 1);
+    emit_pop_double(cg->output, 0);
+
+    emit_fcmp(cg->output);
+
+    const char *condition;
+    if (strcmp(op, "<") == 0) {
+        condition = "lt";
+    } else if (strcmp(op, ">") == 0) {
+        condition = "gt";
+    } else if (strcmp(op, "=") == 0) {
+        condition = "eq";
+    } else if (strcmp(op, "<=") == 0) {
+        condition = "le";
+    } else if (strcmp(op, ">=") == 0) {
+        condition = "ge";
+    } else {
+        fprintf(stderr, "Error: Unknown comparison operator: %s\n", op);
+        exit(1);
+    }
+
+    emit_cset(cg->output, 0, condition);
+    fprintf(cg->output, "    ucvtf d0, x0\n");
+    emit_push_double(cg->output, 0);
+}
+
+static void generate_if(CodeGen *cg, ASTNode **args, int arg_count) {
+    if (arg_count != 3) {
+        fprintf(stderr, "Error: if requires exactly 3 arguments (condition then else)\n");
+        exit(1);
+    }
+
+    char else_label[32];
+    char end_label[32];
+    sprintf(else_label, ".L_else_%d", cg->label_counter);
+    sprintf(end_label, ".L_end_%d", cg->label_counter);
+    cg->label_counter++;
+
+    emit_comment(cg->output, "If: evaluate condition");
+    generate_expr(cg, args[0]);
+
+    emit_comment(cg->output, "If: check condition");
+    emit_pop_double(cg->output, 0);
+    fprintf(cg->output, "    fcmp d0, #0.0\n");
+    emit_branch_eq(cg->output, else_label);
+
+    emit_comment(cg->output, "If: then branch");
+    generate_expr(cg, args[1]);
+    emit_branch(cg->output, end_label);
+
+    emit_comment(cg->output, "If: else branch");
+    emit_label(cg->output, else_label);
+    generate_expr(cg, args[2]);
+
+    emit_label(cg->output, end_label);
 }
 
 static void generate_function_call(CodeGen *cg, const char *name, ASTNode **args, int arg_count) {
@@ -198,6 +276,10 @@ static void generate_list(CodeGen *cg, ASTNode *node) {
 
     if (is_operator(symbol)) {
         generate_operator(cg, symbol, args, arg_count);
+    } else if (is_comparison(symbol)) {
+        generate_comparison(cg, symbol, args, arg_count);
+    } else if (strcmp(symbol, "if") == 0) {
+        generate_if(cg, args, arg_count);
     } else if (strcmp(symbol, "defn") == 0) {
         fprintf(stderr, "Error: defn not yet supported in this context\n");
         exit(1);

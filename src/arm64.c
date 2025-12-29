@@ -78,3 +78,43 @@ void emit_float_constant(FILE *f, const char *label, double value) {
     fprintf(f, "%s:\n", label);
     fprintf(f, "    .double %f\n", value);
 }
+
+void emit_fcmp(FILE *f) {
+    fprintf(f, "    fcmp d0, d1\n");
+}
+
+void emit_label(FILE *f, const char *label) {
+    fprintf(f, "%s:\n", label);
+}
+
+void emit_branch(FILE *f, const char *label) {
+    fprintf(f, "    b %s\n", label);
+}
+
+void emit_branch_eq(FILE *f, const char *label) {
+    fprintf(f, "    b.eq %s\n", label);
+}
+
+void emit_branch_ne(FILE *f, const char *label) {
+    fprintf(f, "    b.ne %s\n", label);
+}
+
+void emit_branch_lt(FILE *f, const char *label) {
+    fprintf(f, "    b.lt %s\n", label);
+}
+
+void emit_branch_le(FILE *f, const char *label) {
+    fprintf(f, "    b.le %s\n", label);
+}
+
+void emit_branch_gt(FILE *f, const char *label) {
+    fprintf(f, "    b.gt %s\n", label);
+}
+
+void emit_branch_ge(FILE *f, const char *label) {
+    fprintf(f, "    b.ge %s\n", label);
+}
+
+void emit_cset(FILE *f, int reg, const char *condition) {
+    fprintf(f, "    cset x%d, %s\n", reg, condition);
+}

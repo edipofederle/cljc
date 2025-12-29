@@ -6,6 +6,7 @@ A VERY TINY compiler for a VERY minimal Clojure-like language that generates nat
 
 - **Arithmetic Operations**: `+`, `-`, `*`, `/` with support for multiple arguments
 - **Basic def**: `(def foo 10) (+ foo 10)`
+- **if**: `(if (> 10 2) 0 1)`
 - **Nested Expressions**: Unlimited nesting of function calls and operations
 - **Function Definitions**: Define functions `defn`
 - **Function Calls**: Call user-defined functions
