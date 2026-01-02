@@ -139,7 +139,51 @@ static void emit_data_section(CodeGen *cg) {
     }
 }
 
+typedef struct LocalContext {
+    char **param_names;
+    int param_count;
+    char **let_names;
+    int let_count;
+    int let_frame_offset;  // Offset from frame pointer to first let binding
+    struct LocalContext *parent;
+} LocalContext;
+
+static LocalContext *current_context = NULL;
+
 static void generate_expr(CodeGen *cg, ASTNode *node);
+
+static int find_local_index(const char *name, int *is_let, int *frame_offset) {
+    if (!current_context) return -1;
+
+    // First check let bindings (most recent)
+    for (int i = 0; i < current_context->let_count; i++) {
+        if (strcmp(current_context->let_names[i], name) == 0) {
+            *is_let = 1;
+            *frame_offset = current_context->let_frame_offset;
+            return i;
+        }
+    }
+
+    // Then check parameters
+    for (int i = 0; i < current_context->param_count; i++) {
+        if (strcmp(current_context->param_names[i], name) == 0) {
+            *is_let = 0;
+            *frame_offset = 0;
+            return i;
+        }
+    }
+
+    // Check parent context if exists
+    if (current_context->parent) {
+        LocalContext *saved = current_context;
+        current_context = current_context->parent;
+        int result = find_local_index(name, is_let, frame_offset);
+        current_context = saved;
+        return result;
+    }
+
+    return -1;
+}
 
 static void generate_number(CodeGen *cg, double value) {
     const char *label = add_float_constant(cg, value);
@@ -388,6 +432,87 @@ static void generate_list_function(CodeGen *cg, const char *func, ASTNode **args
     }
 }
 
+static void generate_let(CodeGen *cg, ASTNode **args, int arg_count) {
+    if (arg_count != 2) {
+        fprintf(stderr, "Error: let requires exactly 2 arguments (bindings body)\n");
+        exit(1);
+    }
+
+    ASTNode *bindings = args[0];
+    ASTNode *body = args[1];
+
+    if (bindings->type != AST_LIST) {
+        fprintf(stderr, "Error: let bindings must be a vector/list\n");
+        exit(1);
+    }
+
+    if (bindings->as.list.count % 2 != 0) {
+        fprintf(stderr, "Error: let bindings must have even number of elements\n");
+        exit(1);
+    }
+
+    int binding_count = bindings->as.list.count / 2;
+    char **binding_names = malloc(binding_count * sizeof(char *));
+
+    emit_comment(cg->output, "Let: evaluate bindings");
+
+    // Calculate where bindings will be stored relative to frame pointer
+    // Account for parent context's bindings AND parameters
+    int parent_bindings = 0;
+    if (current_context) {
+        parent_bindings = current_context->param_count + current_context->let_count;
+    }
+    int let_frame_offset = parent_bindings;
+
+    // Evaluate each binding and push to stack
+    for (int i = 0; i < binding_count; i++) {
+        ASTNode *name_node = bindings->as.list.elements[i * 2];
+        ASTNode *value_node = bindings->as.list.elements[i * 2 + 1];
+
+        if (name_node->type != AST_SYMBOL) {
+            fprintf(stderr, "Error: let binding name must be a symbol\n");
+            free(binding_names);
+            exit(1);
+        }
+
+        binding_names[i] = name_node->as.symbol;
+
+        // Evaluate the value expression
+        generate_expr(cg, value_node);
+    }
+
+    // Create new context with let bindings
+    LocalContext let_ctx;
+    let_ctx.param_names = current_context ? current_context->param_names : NULL;
+    let_ctx.param_count = current_context ? current_context->param_count : 0;
+    let_ctx.let_names = binding_names;
+    let_ctx.let_count = binding_count;
+    let_ctx.let_frame_offset = let_frame_offset;
+    let_ctx.parent = current_context;
+
+    LocalContext *saved_context = current_context;
+    current_context = &let_ctx;
+
+    emit_comment(cg->output, "Let: evaluate body");
+    generate_expr(cg, body);
+
+    current_context = saved_context;
+
+    emit_comment(cg->output, "Let: cleanup bindings");
+    // Pop the result into d0 first
+    emit_pop_double(cg->output, 0);
+
+    // Pop all the let bindings
+    if (binding_count > 0) {
+        fprintf(cg->output, "    add sp, sp, #%d\n", binding_count * 16);
+    }
+
+    // Push the result back
+    emit_push_double(cg->output, 0);
+
+    free(binding_names);
+}
+
 static void generate_if(CodeGen *cg, ASTNode **args, int arg_count) {
     if (arg_count != 3) {
         fprintf(stderr, "Error: if requires exactly 3 arguments (condition then else)\n");
@@ -474,30 +599,14 @@ static void generate_list(CodeGen *cg, ASTNode *node) {
         generate_list_function(cg, symbol, args, arg_count);
     } else if (strcmp(symbol, "if") == 0) {
         generate_if(cg, args, arg_count);
+    } else if (strcmp(symbol, "let") == 0) {
+        generate_let(cg, args, arg_count);
     } else if (strcmp(symbol, "defn") == 0) {
         fprintf(stderr, "Error: defn not yet supported in this context\n");
         exit(1);
     } else {
         generate_function_call(cg, symbol, args, arg_count);
     }
-}
-
-typedef struct {
-    char **param_names;
-    int param_count;
-} LocalContext;
-
-static LocalContext *current_context = NULL;
-
-static int find_param_index(const char *name) {
-    if (!current_context) return -1;
-
-    for (int i = 0; i < current_context->param_count; i++) {
-        if (strcmp(current_context->param_names[i], name) == 0) {
-            return i;
-        }
-    }
-    return -1;
 }
 
 static void generate_symbol(CodeGen *cg, const char *symbol) {
@@ -511,16 +620,27 @@ static void generate_symbol(CodeGen *cg, const char *symbol) {
         return;
     }
 
-    int param_idx = find_param_index(symbol);
-    if (param_idx < 0) {
+    int is_let = 0;
+    int frame_offset = 0;
+    int local_idx = find_local_index(symbol, &is_let, &frame_offset);
+    if (local_idx < 0) {
         fprintf(stderr, "Error: Undefined symbol: %s\n", symbol);
         exit(1);
     }
 
-    emit_comment(cg->output, "Load parameter");
-    int offset = -(current_context->param_count - param_idx) * 16;
-    fprintf(cg->output, "    ldr d0, [x29, #%d]\n", offset);
-    emit_push_double(cg->output, 0);
+    if (is_let) {
+        emit_comment(cg->output, "Load let binding");
+        // Let bindings are pushed in order
+        // The binding at local_idx is at x29 - (frame_offset + local_idx + 1) * 16
+        int offset = -(frame_offset + local_idx + 1) * 16;
+        fprintf(cg->output, "    ldr d0, [x29, #%d]\n", offset);
+        emit_push_double(cg->output, 0);
+    } else {
+        emit_comment(cg->output, "Load parameter");
+        int offset = -(current_context->param_count - local_idx) * 16;
+        fprintf(cg->output, "    ldr d0, [x29, #%d]\n", offset);
+        emit_push_double(cg->output, 0);
+    }
 }
 
 static void generate_expr(CodeGen *cg, ASTNode *node) {
@@ -680,6 +800,10 @@ static void generate_function(CodeGen *cg, FunctionInfo *func) {
     LocalContext ctx;
     ctx.param_names = func->param_names;
     ctx.param_count = func->arity;
+    ctx.let_names = NULL;
+    ctx.let_count = 0;
+    ctx.let_frame_offset = 0;
+    ctx.parent = NULL;
     current_context = &ctx;
 
     emit_comment(cg->output, "Generate function body");
