@@ -2,12 +2,23 @@
 
 A VERY TINY compiler for a VERY minimal Clojure-like language that generates native ARM64 assembly code for macOS Apple Silicon.
 
-## 🎉 NEW: Bootstrap POC Complete!
+```
+(defn factorial [n]
+ (if (<= n 1)
+      1
+      (let [prev (factorial (- n 1))]
+        (* n prev))))
+(factorial 5)  ; => 120.0
+```
+
+##  NEW: Bootstrap POC Complete + Let Bindings!
 
 **The cljc compiler can now compile parts of itself!** We've successfully implemented a tokenizer in cljc that compiles with the C-based compiler, proving that self-hosting is viable.
 
-📖 **See**: `BOOTSTRAP_PROGRESS.md` for full details
-⚡ **Quick Ref**: `QUICK_REFERENCE.md` for syntax examples
+**NEW**: Let bindings are now supported, enabling local variable scoping for complex logic!
+
+ **See**: `BOOTSTRAP_PROGRESS.md` for full details
+ **Quick Ref**: `QUICK_REFERENCE.md` for syntax examples
 
 ## Features
 
@@ -16,6 +27,7 @@ A VERY TINY compiler for a VERY minimal Clojure-like language that generates nat
 - **Comparisons**: `<`, `>`, `=`, `<=`, `>=`
 - **Basic def**: `(def foo 10) (+ foo 10)`
 - **if expressions**: `(if (> 10 2) 0 1)`
+- **let bindings**: `(let [x 5 y 10] (+ x y))` with support for nesting
 - **Nested Expressions**: Unlimited nesting of function calls and operations
 - **Function Definitions**: `(defn square [x] (* x x))`
 - **Function Calls**: Call user-defined functions
@@ -29,11 +41,3 @@ A VERY TINY compiler for a VERY minimal Clojure-like language that generates nat
 ### NEW: List Operations
 - **Runtime Lists**: `empty-list`, `cons`, `first`, `rest`, `append`, `list-count`
 - Example: `(list-count (cons 1 (cons 2 (empty-list))))` → `2.0`
-
-### Bootstrap Example
-```clojure
-(defn make-token [type value line col]
-  (cons type (cons value (cons line (cons col (empty-list))))))
-
-(list-count (cons (make-token 0 40 1 1) (empty-list)))  ; => 1.0 ✅
-```
